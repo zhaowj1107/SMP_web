@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SMP 叫牌导航</title>
+<style>
+  :root{
+    box-sizing:border-box;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+    --bg:#e9edef;        /* 主体背景：冷灰 */
+    --rail:#dde5e1;      /* 左侧栏：灰绿 */
+    --rail-line:#c7d2cc;
+    --panel:#ffffff;     /* 可点击卡片 */
+    --leaf:#f4f6f7;      /* 末端条目 */
+    --ink:#15181b; --mute:#5c636b; --faint:#889097;
+    --line:#d3d9dd;
+    --felt:#1d5540; --felt-ink:#ffffff;
+    --accent:#1d5540;
+    --sel-bg:#1d5540; --sel-ink:#ffffff; --sel-red:#ffc2bb;
+    --note:#fbf6e4; --note-line:#c9a227;
+    --hover:#f1f7f4;
+    --shadow:0 1px 2px rgba(16,28,22,.07), 0 3px 10px rgba(16,28,22,.06);
+    --red:#b3261e; --mark:#f5e7a8;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1214; --rail:#161c1f; --rail-line:#262e33;
+      --panel:#20282c; --leaf:#181e21;
+      --ink:#e6e8ea; --mute:#9ba3aa; --faint:#6b737a; --line:#2d363b;
+      --felt:#153628; --felt-ink:#e8ece9; --accent:#7cc3a3;
+      --sel-bg:#2e7657; --sel-ink:#ffffff; --sel-red:#ffc2bb;
+      --note:#25231a; --note-line:#8d7631; --hover:#27323a;
+      --shadow:0 1px 2px rgba(0,0,0,.45), 0 3px 10px rgba(0,0,0,.25);
+      --red:#ff8a80; --mark:#4a4020;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1214; --rail:#161c1f; --rail-line:#262e33;
+    --panel:#20282c; --leaf:#181e21;
+    --ink:#e6e8ea; --mute:#9ba3aa; --faint:#6b737a; --line:#2d363b;
+    --felt:#153628; --felt-ink:#e8ece9; --accent:#7cc3a3;
+    --sel-bg:#2e7657; --sel-ink:#ffffff; --sel-red:#ffc2bb;
+    --note:#25231a; --note-line:#8d7631; --hover:#27323a;
+    --shadow:0 1px 2px rgba(0,0,0,.45), 0 3px 10px rgba(0,0,0,.25);
+    --red:#ff8a80; --mark:#4a4020;
+  }
+  *,*::before,*::after{ box-sizing:inherit; }
+  html{ height:100%; scroll-padding-top:env(safe-area-inset-top,0px); -webkit-text-size-adjust:100%; }
+  body{
+    height:100%; margin:0; background:var(--bg); color:var(--ink);
+    font-family:"PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",-apple-system,system-ui,sans-serif;
+    font-size:15px; line-height:1.5;
+    display:flex; flex-direction:column;
+  }
+  button{ font:inherit; color:inherit; }
+  .r{ color:var(--red); }
+  mark{ background:var(--mark); color:inherit; padding:0 2px; border-radius:2px; }
+  b{ font-weight:700; }
+
+  /* ── 顶栏 ── */
+  .top{
+    flex:0 0 auto; display:flex; align-items:center; gap:10px;
+    padding:9px 14px; background:var(--felt); color:var(--felt-ink);
+    box-shadow:0 1px 0 rgba(0,0,0,.12);
+  }
+  .home{
+    flex:0 0 auto; border:0; background:rgba(255,255,255,.14); color:inherit;
+    padding:5px 11px; border-radius:7px; cursor:pointer; font-size:13.5px; white-space:nowrap;
+  }
+  .home:hover{ background:rgba(255,255,255,.24); }
+  .crumbs{ flex:1 1 auto; min-width:0; display:flex; gap:4px; align-items:center; overflow-x:auto; scrollbar-width:none; }
+  .crumbs::-webkit-scrollbar{ display:none; }
+  .crumbs button{
+    border:0; background:none; color:inherit; cursor:pointer; padding:3px 5px; border-radius:5px;
+    white-space:nowrap; font-size:14px; font-weight:600;
+  }
+  .crumbs button:hover{ background:rgba(255,255,255,.16); }
+  .crumbs .sep{ opacity:.55; font-size:12px; }
+  .crumbs .r{ color:#ffb3ab; }
+  .hint{ flex:0 0 auto; font-size:11.5px; opacity:.7; }
+  .eye{
+    flex:0 0 auto; display:inline-flex; align-items:center; gap:5px;
+    border:1px solid rgba(255,255,255,.28); background:transparent; color:inherit;
+    padding:4px 9px 4px 7px; border-radius:999px; cursor:pointer; font-size:12.5px; white-space:nowrap;
+  }
+  .eye:hover{ background:rgba(255,255,255,.14); }
+  .eye svg{ width:17px; height:17px; }
+  .eye .off{ display:none; }
+  body.desc-off .eye .on{ display:none; }
+  body.desc-off .eye .off{ display:inline; }
+  body.desc-off .eye{ opacity:.8; }
+  body.depth0 .eye{ opacity:.45; }
+
+  /* ── 主体布局 ── */
+  .layout{ flex:1 1 auto; min-height:0; display:flex; }
+  .rails{ flex:0 0 auto; display:flex; min-height:0; }
+  .rail{
+    width:160px; flex:0 0 auto; overflow-y:auto;
+    background:var(--rail); border-right:1px solid var(--rail-line);
+    padding:6px 0 18px;
+  }
+  .rail.enter{ animation:railIn .18s ease-out; }
+  @keyframes railIn{ from{ opacity:0; transform:translateX(-8px);} to{ opacity:1; transform:none;} }
+  .rail.narrow{ width:78px; }
+  .rail.narrow .m{ display:none; }
+  body.desc-off .rail{ width:86px; }
+  body.desc-off .rail .m{ display:none; }
+  .rh{
+    font-size:11px; font-weight:700; letter-spacing:.08em; color:var(--mute);
+    padding:7px 12px 6px; position:sticky; top:-6px; background:var(--rail); z-index:1;
+  }
+  .rg{ font-size:10.5px; color:var(--faint); padding:10px 12px 3px; letter-spacing:.06em; }
+  .ri{
+    display:block; width:calc(100% - 12px); margin:1px 6px; text-align:left; border:0; background:none; cursor:pointer;
+    padding:6px 8px; border-radius:7px;
+  }
+  .ri:hover:not(:disabled){ background:rgba(255,255,255,.55); }
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .ri:hover:not(:disabled){ background:rgba(255,255,255,.06);} }
+  .ri .b{ display:block; font-weight:700; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ri .m{ display:block; font-size:11.5px; color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ri.sel{ background:var(--sel-bg); color:var(--sel-ink); box-shadow:0 1px 3px rgba(0,0,0,.18); }
+  .ri.sel:hover{ background:var(--sel-bg); }
+  .ri.sel .m{ color:rgba(255,255,255,.8); }
+  .ri.sel .r{ color:var(--sel-red); }
+  .ri.leaf{ cursor:default; opacity:.5; }
+
+  main{ flex:1 1 auto; min-width:0; overflow-y:auto; padding:22px 28px 60px; background:var(--bg); }
+  .fade{ animation:fade .2s ease-out; }
+  @keyframes fade{ from{ opacity:0; transform:translateY(4px);} to{ opacity:1; transform:none;} }
+
+  .where{ font-size:12.5px; color:var(--mute); margin:0 0 2px; }
+  h1{ font-size:26px; margin:0; line-height:1.2; letter-spacing:.01em; }
+  .lead{ font-size:15.5px; margin:6px 0 0; }
+  .note{
+    margin:14px 0 0; padding:11px 14px; background:var(--note); border:1px solid var(--line);
+    border-left:4px solid var(--note-line); border-radius:8px; font-size:14px; max-width:880px;
+  }
+  .sect{
+    display:flex; align-items:baseline; gap:10px; margin:26px 0 9px;
+    font-size:12px; font-weight:700; letter-spacing:.08em; color:var(--mute);
+  }
+  .sect span{ font-weight:400; color:var(--faint); letter-spacing:0; }
+
+  .list{ display:flex; flex-direction:column; gap:7px; max-width:880px; }
+  .row{
+    display:grid; grid-template-columns:minmax(92px,auto) 1fr auto; gap:14px; align-items:start;
+    width:100%; text-align:left; border-radius:9px; padding:11px 14px;
+    background:var(--leaf); border:1px solid var(--line);
+  }
+  button.row{
+    cursor:pointer; background:var(--panel); border-color:transparent;
+    border-left:4px solid var(--accent); padding-left:11px; box-shadow:var(--shadow);
+    transition:transform .08s ease, box-shadow .12s ease;
+  }
+  button.row:hover{ background:var(--hover); transform:translateY(-1px); }
+  button.row:focus-visible,.ri:focus-visible,.card:focus-visible,.eye:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+  .rb{ font-weight:700; font-size:15.5px; white-space:nowrap; }
+  .rm .m{ font-size:14.5px; }
+  .rm .d{ font-size:13px; color:var(--mute); margin-top:4px; }
+  .chev{ font-size:12px; color:var(--faint); white-space:nowrap; padding-top:2px; }
+  button.row .chev{ color:var(--accent); font-weight:600; }
+
+  /* 开叫一览 */
+  .intro{ color:var(--mute); font-size:13.5px; margin:6px 0 0; max-width:720px; }
+  .grp{ font-size:12px; font-weight:700; letter-spacing:.08em; color:var(--mute); margin:26px 0 10px; }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:12px; max-width:1100px; }
+  .card{
+    text-align:left; border-radius:12px; padding:14px 15px; display:flex; flex-direction:column; gap:4px; min-height:112px;
+    background:var(--leaf); border:1px solid var(--line);
+  }
+  button.card{
+    cursor:pointer; background:var(--panel); border-color:transparent; border-top:4px solid var(--accent);
+    box-shadow:var(--shadow); transition:transform .08s ease;
+  }
+  button.card:hover{ background:var(--hover); transform:translateY(-1px); }
+  .card .b{ font-size:22px; font-weight:700; line-height:1.2; }
+  .card .m{ font-size:13.5px; }
+  .card .c{ margin-top:auto; font-size:12px; color:var(--accent); font-weight:600; }
+  .card.leafcard .c{ color:var(--mute); font-weight:400; }
+
+  /* ── 手机竖屏：左侧栏改为顶部逐行堆叠 ── */
+  @media (max-width:760px){
+    .hint{ display:none; }
+    .eye .t{ display:none; }
+    .layout{ flex-direction:column; overflow-y:auto; }
+    .rails{ flex-direction:column; }
+    .rail, .rail.narrow, body.desc-off .rail{
+      width:auto; display:flex; align-items:stretch; gap:6px; overflow-x:auto; overflow-y:hidden;
+      border-right:0; border-bottom:1px solid var(--rail-line); padding:7px 10px; scrollbar-width:none;
+    }
+    .rail::-webkit-scrollbar{ display:none; }
+    .rail .m, .rail.narrow .m{ display:block; max-width:150px; font-size:10.5px; }
+    body.desc-off .rail .m{ display:none; }
+    .rh{ position:static; flex:0 0 auto; align-self:center; padding:0 4px 0 0; font-size:10.5px; background:none; }
+    .rg{ display:none; }
+    .ri{
+      flex:0 0 auto; width:auto; margin:0; border:1px solid var(--rail-line); background:var(--panel);
+      border-radius:10px; padding:4px 11px;
+    }
+    .ri .b{ font-size:13.5px; }
+    main{ overflow:visible; padding:16px 14px 50px; }
+    h1{ font-size:22px; }
+    .row{ grid-template-columns:1fr auto; gap:4px 10px; }
+    .rb{ grid-column:1; }
+    .chev{ grid-column:2; grid-row:1; }
+    .rm{ grid-column:1 / -1; }
+    .grid{ grid-template-columns:1fr 1fr; gap:9px; }
+    .card{ min-height:98px; padding:12px; }
+    .card .b{ font-size:19px; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <button class="home" id="home" type="button">开叫一览</button>
+  <nav class="crumbs" id="crumbs" aria-label="当前叫序"></nav>
+  <span class="hint">Esc 返回上一级</span>
+  <button class="eye" id="eye" type="button" aria-pressed="true" title="左侧栏是否显示含义">
+    <svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+    <svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.1"/><path d="M6.6 6.6C3.9 8.3 2 12 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
+    <span class="t">侧栏含义</span>
+  </button>
+</header>
+<div class="layout" id="layout">
+  <div class="rails" id="rails"></div>
+  <main id="main"></main>
+</div>
+
+<script>
+/* ───────────────────────── 叫牌树 ─────────────────────────
+   N(叫品, 含义, {d:补充说明, c:[子节点], next:子节点栏标题})
+   说明文字支持：**加粗**  ==标黄==  \n 换行                    */
+function N(b, m, o){ o = o || {}; return { b:b, m:m || '', d:o.d || '', c:o.c || [], next:o.next || '', g:o.g || '' }; }
+
+var LABELS = ['开叫','应叫','开叫人再叫','应叫人再叫','开叫人第三次叫','应叫人第三次叫','后续','后续','后续'];
+
+var ROOTS = [
+
+/* ============================== 1♣ ============================== */
+N('1♣','16+（平均 17+），任意牌型，人为逼叫',{g:'开叫', d:'口诀：**对面随机 8 点就想打局**', c:[
+
+  N('1♢','0–7，任意牌型',{c:[
+    N('1NT','17–19 平均',{d:'同 1NT 开叫，应叫人按常规后续处理'}),
+    N('2NT','22–24 平均',{d:'同 2NT 开叫'}),
+    N('3NT','25–27 平均',{d:'==Kokish？待确认=='}),
+    N('1♡ / 1♠','17–22−，5 张或 4 张，逼叫一轮',{d:'应叫人**不能 pass**。\n个人想法：有 4 张高花且能叫 1NT（如 4432）时优先 1NT；此时 4 张高花通常意味着另有低花长套，特例 4414', c:[
+      N('1♠','（1♡ 再开后）0–7，4 张↑，逼叫',{c:[
+        N('1NT','1444，非逼叫'),
+        N('2♣ / 2♢','5-4 两套，非逼叫'),
+        N('再叫原花色','6 张，非逼叫'),
+        N('2♠','加叫：3 张 16–19，或 4 张 16–17'),
+        N('3♠','跳加叫：3 张 20–21，或 4 张 18–19'),
+        N('2NT','21–22，非逼叫'),
+        N('3♣ / 3♢','4 张高花 + 5 张低花，逼局'),
+        N('跳原花色','定将牌，邀请'),
+        N('3NT / 4M','想打，无满贯兴趣'),
+        N('跳新花','splinter，4 张支持，20+')
+      ]}),
+      N('1NT','0–5，否认 4 张高花，不逼叫',{c:[
+        N('Pass','—'),
+        N('2♣ / 2♢','5-4 两套，非逼叫'),
+        N('再叫原花色','6 张，非逼叫'),
+        N('2♡','（1♠ 开后）21 点，5♠ + 4♡',{d:'==原笔记标注：why？=='}),
+        N('2NT','22–23，非逼叫'),
+        N('3♣ / 3♢','4 张高花 + 5 张低花，逼局'),
+        N('跳原花色','定将牌，邀请'),
+        N('3NT / 4M','想打，无满贯兴趣')
+      ]}),
+      N('2♣','「好牌无配合」，6–7，逼叫',{d:'无 3 张↑红心、无 4 张↑黑桃（1♠ 开叫时另否认 5 张↑红心）', c:[
+        N('2♢','低限，约定叫',{d:'要求应叫人示 2 张支持或另一高花'}),
+        N('2♡','（1♠ 之后）低限，自然，5♠ + 4♡'),
+        N('再叫原花色','6 张↑，非逼叫'),
+        N('2♠','（1♡ 之后）逆叫，21+，逼叫'),
+        N('2NT','逼局，等待叫'),
+        N('3♣ / 3♢','4 张↑红心 + 6 张↑低花，逼局',{d:'==原文写 hearts，疑为泛指 4 张高花=='}),
+        N('3M','跳原，定将牌')
+      ]}),
+      N('2♢','3 张支持，5–7，逼叫',{d:'1♠ 开叫时可能有 5 张红心', c:[
+        N('再叫原花色','止叫，通常 4 张'),
+        N('3M','邀请，5 张↑'),
+        N('另一高花','自然，4 张↑'),
+        N('2NT','人为，逼局'),
+        N('3♣ / 3♢','4 张高花 + 6 张↑低花，逼局'),
+        N('3NT','止叫')
+      ]}),
+      N('2♡','（1♠ 之后）6–7，5 张↑红心，否认 3 张↑黑桃'),
+      N('2M','单加叫：4–5 张将牌，0–4，不逼叫',{d:'后续沿用常规 1M-2M 加叫结构'}),
+      N('2NT','mini-splinter：4 张将牌，5–7，非平均',{d:'对同伴而言已是相当好的 1♢', c:[
+        N('3M / 4M','止叫'),
+        N('3♣','问单缺，逼局')
+      ]}),
+      N('跳新花','4–6，6 张↑好套，大牌点全在该套，不逼叫'),
+      N('3M','跳加叫：4 张将牌，平均，5–7，邀请'),
+      N('双跳新花','splinter：5 张↑将牌，6–7，该花色单缺',{d:'「splinter 中的 splinter」'})
+    ]}),
+    N('2♣ / 2♢','17–21，6 张↑低花或低花 5-4↑，无 4 张高花，非逼叫',{d:'2m 覆盖的区间很宽，只分两档不够精确：牌型合适（无单缺，或单张是 A / K）时可**改按 NT 处理**，利用更窄的点力区间。\n个人想法：二阶低花尽量表达 6 张，否则优先 1NT', c:[
+      N('Pass','0–5(−)'),
+      N('再叫','6–7（或有潜力的 5 点）',{d:'保留成局可能——开叫人最多可达 21'}),
+      N('2♡ / 2♠','5 张↑',{d:'开叫人已否认 4 张高花（否则会再叫 1M）'}),
+      N('跳新花','4–6，好的长套，大牌点全在该套')
+    ]}),
+    N('跳叫 2M / 3m','逼局实力：22+，8.5 赢墩',{d:'3m 跳叫＝逼局的长低花。3M / 4M 按牌力自行判断'}),
+    N('对手第 4 家争叫','1♣-(P)-1♢-(争叫)',{next:'争叫类型', d:'核心原则：**假装对手开的叫**，但开叫人已知 16+。\n21+ 强牌：**先加倍，再自然叫**（先加倍再叫新花＝21+；先加倍再叫 NT＝22–23）。\nMichaels / Unusual 看重**牌型而非牌力**。\n**唯一例外：跳叫不是弱的**——强梅花开叫人跳叫＝长套 + 强牌，按赢墩的邀请（对手在阻击我们，不存在对阻击的阻击）', c:[
+      N('一阶争叫','例：1♣-(P)-1♢-(1♠)，当作东家开叫 1♠',{next:'开叫人行动', c:[
+        N('Pass','没什么可叫，或陷阱 pass',{d:'可能是 17–19 平均无止张；**也可能是陷阱 pass**（该花色一把）。应叫人不必须再开叫，但应尽量再开，加倍为 takeout'}),
+        N('X','takeout double',{d:'也可以是任意 21+ 的牌，正如普通 takeout 可以是任意 17+'}),
+        N('1NT','17–19，对方花色有止张',{d:'不承诺额外牌力'}),
+        N('2♣ / 2♢ / 2♡','普通「争叫」：5 张↑，约 16–20，不逼叫'),
+        N('2♠','Michaels：5 张红心 + 5 张低花'),
+        N('2NT','Unusual：5♢ + 5♣（最低两门未叫花色）'),
+        N('3♣ / 3♢ / 3♡','自然，强邀请：长套 + 大量赢墩，不逼叫'),
+        N('3NT','想打：可能是长的连张低花 + 对方花色有止')
+      ]}),
+      N('二阶争叫','例：1♣-(P)-1♢-(2♢)',{next:'开叫人行动', c:[
+        N('Pass','17–19 平均，或陷阱 pass',{d:'希望应叫人以 takeout double 再开'}),
+        N('X','takeout double'),
+        N('2♡ / 2♠ / 3♣','普通「争叫」',{d:'在这一阶尽量不要是烂套'}),
+        N('2NT','22–23',{d:'如同对方开弱二我方自然叫 2NT，但更强'}),
+        N('3♢','Michaels：5-5 高花'),
+        N('3♡ / 3♠','强邀请：长套 + 大量赢墩，不逼叫'),
+        N('3NT','想打：长的连张低花 + 对方花色有止')
+      ]}),
+      N('应叫人后续','当作开叫人做了争叫来应，5–7 应作邀请',{d:'开叫人 takeout double 后，5–7 宜**跳叫**而非简单应叫（也可用 lebensohl，如同应答对方弱二的加倍）。\n开叫人简单「争叫」后，0–4 可 pass'}),
+      N('第 4 家加倍 1♢','无视，照常叫')
+    ]})
+  ]}),
+
+  N('1♡','8–11，逼局；一盖一、人为',{d:'级叫，不表达牌型。7 点但有 A+K，或 5-5／缺门／好 6 张套可升级。\n目标以成局为主：开叫低限 16–19 + 应叫 8–11 ≤ 30，无特殊配合/牌型则无满贯。\n性质同 2/1 gf，**不能停在成局以下**；先找高花配合，否则 3NT（接近时优先 3NT 而非 5m）', c:[
+    N('1NT','17–19，或逼局实力（平均）',{d:'按 1NT 开叫的常规后续。\n==若是逼局牌力：先正常叫牌直到找到配合，再用限制性牌力不可能做的叫品（如 cue-bid）揭示=='}),
+    N('2NT','22–24 平均',{d:'按 2NT 开叫的常规后续'}),
+    N('1♠ / 2♡','5 张高花（primary suit）',{d:'非平均牌型再叫最自然的 primary suit。两个 5 张套先高后低；5-4 先 5 后 4（同 2/1）', c:[
+      N('加叫高花','3 张↑支持即加叫定将（flag）',{d:'定将后焦点由花色转为定级。满贯靠**控制扣叫**（A / K / 单张 / 缺门）；16–18 无满贯兴趣直接 4M 止叫。\n==未定将就 cue 易误解，故须先 flag=='}),
+      N('叫 primary suit','无 3 张支持时叫自己的 5 张↑套',{d:'例：1♣-1♡-1♠-2♣（5 张↑梅花）；之后开叫人有 3 张即加叫定将'}),
+      N('跳新花','splinter',{d:'单张/缺门 + 对同伴上一个叫品花色 4 张↑支持（同 2/1）。同伴短缺花色上的 K 需降值'})
+    ]}),
+    N('2♣ / 2♢','6 张低花（或低花 5-4）',{c:[
+      N('叫 primary suit','例：2♡＝5 张↑红心',{d:'以 1♣-1♡-2♢-2♡ 为例（Waiting 2NT）。开叫人越过 2NT 须有特殊理由；其他无配合叫序同理', c:[
+        N('2♠','4 张↑黑桃（短于方块），否认 3 张红心'),
+        N('2NT','等待：无旁边 5 张套、无好 7 张套、对同伴低花无好支持',{d:'可能有 4 张梅花，否认 3 张红心'}),
+        N('3♣','5 张↑方块 + 5 张↑梅花，否认 3 张红心'),
+        N('3♢','7 张↑方块（或很好的 6 张），否认 3 张红心'),
+        N('3♡','heart flag，红心定将'),
+        N('3♠ / 4♣','红心的 splinter，4 张↑将牌'),
+        N('4♡','极差的加叫',{d:'即使同伴 11 点（1♡ 上限）+ 单缺也几无满贯'})
+      ]})
+    ]}),
+    N('2♠','跳叫：(4441) 牌型',{d:'最便宜的跳新。无 primary suit 且非平均；若应叫人知道单张位置可能叫到好满贯', c:[
+      N('2NT','问单张',{d:'开叫人报出单张后，应叫人可三阶定将，或用 **4♣/4♢/RKC**（见 2♢ 开叫）'})
+    ]}),
+    N('3♣ / 3♢ / 3♡ / 3♠','其余跳新＝自然：自足花色 + 满贯兴趣',{d:'**定将**，并**强迫 cue-bid**（应叫人必须示 A、K、单张或缺门）。一般不跳叫以省空间'})
+  ]}),
+
+  N('1♠','12+，5 张↑黑桃',{d:'extras 应叫：目标不只成局而是满贯；11 点亦可升级。后续同 1♡ 应叫'}),
+  N('1NT','12+，平均',{d:'使用 Stayman，**无转移**。后续同 1♡ 应叫'}),
+  N('2♣','12+，5 张↑梅花',{d:'后续同 1♡ 应叫'}),
+  N('2♢','12+，5 张↑方块',{d:'后续同 1♡ 应叫'}),
+  N('2♡','12+，5 张↑红心',{d:'后续同 1♡ 应叫'}),
+  N('2♠','12+，任意 (4441)',{c:[
+    N('2NT','问单张',{d:'随后 4♣/4♢/RKC（见 2♢ 开叫）'})
+  ]}),
+  N('Pass 过的应叫方','上限 10 点，不再分 8–11 / 12+',{next:'应叫', c:[
+    N('1♡','8–10，5 张↑红心'),
+    N('1♠','8–10，5 张↑黑桃'),
+    N('1NT','8–10，平均'),
+    N('2♣','8–10，5 张↑梅花'),
+    N('2♢','8–10，5 张↑方块'),
+    N('2♠','8–10，任意 4441',{d:'2NT 问单张，同 1♣-1♡-2♠'})
+  ]}),
+  N('干扰：二家加倍','1♣-(X)',{next:'我方应叫', d:'总则：逼局牌力时**尽快叫出牌型**；放弃 8–11 / 12+ 之分，改把 0–7 拆为 0–5 / 6–7', c:[
+    N('Pass','0–5 差牌',{d:'四家通常会叫花色 → **开叫人假装是对手开的叫**：自己叫花色＝自然争叫（非逼）；加倍＝takeout（或任意 23+）；cue-bid＝Michaels；跳 2NT＝Unusual。应叫人有 4–5 点或有配合可稍后再叫'}),
+    N('XX','6–7，任意牌型，邀局实力',{d:'**承诺至少再叫一次**。对对手花色的加倍仍为 takeout（直到找到配合或建立逼局）'}),
+    N('非跳叫花色 / 1NT','8+，逼局',{d:'花色为 primary suit；后续同 1♣-1♡ 但不限 8–11。1NT 后**有 Stayman 无转移**（避免弱手做庄）；此后双方加倍皆惩罚'}),
+    N('跳新花','5–7，6 张（二阶）或 7 张（三阶）',{d:'全部大牌点集中在该套'})
+  ]}),
+  N('干扰：二家一／二阶争叫','1♣-(花色)',{next:'我方应叫', c:[
+    N('Pass','0–5 任意；也可能是陷阱',{d:'陷阱：该花色 5 张↑、有确定防守赢墩、牌力不限，准备 pass 开叫人的再开 takeout double。开叫人按弱牌处理；四家再叫时如同在夹击位争叫'}),
+    N('X','6–7，任意牌型',{d:'开叫人可确信还会再叫一次。**例外**：争叫在二阶时，也可能是平均逼局但对方花色无止（随后 cue-bid 揭示）'}),
+    N('非跳新花','8+，5 张↑，逼局',{d:'自然发展；此后加倍为惩罚'}),
+    N('NT','逼局，平均，对方花色有止',{d:'有 Stayman 无转移；加倍为惩罚'}),
+    N('二阶 cue-bid','逼局，平均，对方花色无止'),
+    N('跳新花','5–7，长套且全部牌力集中在该套'),
+    N('三阶 cue-bid','逼局的三门牌型，对方花色上短缺',{d:'可用 4♣/4♢/RKC'})
+  ]}),
+  N('干扰：二家三／四阶争叫','1♣-(高阶花色)',{next:'我方应叫', d:'高阶争叫常需要我方猜测', c:[
+    N('X','有成局牌力，但 3NT 以下无 primary suit',{d:'因是在猜，**7 点通常就够**。开叫人可叫 primary suit／pass 罚放／试 3NT'}),
+    N('叫花色','逼局，有 primary suit'),
+    N('Pass','0–6（或差的 7）必须 pass',{d:'开叫人可 takeout double／叫花色／用既定防御，**也可以 pass**——强梅花不构成逼叫性 pass'})
+  ]})
+]}),
+
+/* ============================== 1♢ ============================== */
+N('1♢','好 10–15 或 11–13 NT；2 张↑方块',{g:'开叫', d:'「Could be short」：只有 11–13 平均时才会短（计划：一阶最便宜再叫，或加叫同伴高花）。\n「Could be long」：长方块也开 1♢，甚至 6♢ + 5 张高花。\n否认 5 张高花，除非 6 张方块。4135 / 1435 也开 1♢。\n应叫门槛：限制性体系下 6 点非必须，但无局或有像样高花时尽量应叫', c:[
+  N('1♡ / 1♠','4 张↑，逐级上叫找高花',{d:'旁有 5 张低花也先叫 4 张高花；只有逼局 + 6 张低花才先叫低花', c:[
+    N('2M','简单加叫：11–13 平均',{d:'非平均 4 张支持：10–12 加二阶，13–15 加三阶。\n==绝不用 3 张支持加叫==（靠重询／Support Dbl／4SF 判断）'}),
+    N('1♠','（1♡ 应叫后）永不越过黑桃'),
+    N('1NT','11–13 低限平均',{d:'**绝不含同伴高花的单张**；应叫人可用 Checkback（2♣）或既有约定'}),
+    N('2♣','两门低花',{d:'**1♢-1♠ 后的 1453 / 1435 / 1444 也一律 2♣**：两门低花共 8 张↑，某门可能只 3 张；应叫人 3 张↑做优先选择，或用未叫高花的二阶叫作 4SF'}),
+    N('2♢','6 张↑方块且无其他可叫花色',{d:'续叫自然'}),
+    N('逆叫入高花','14–15，5 张↑方块 + 4 张高花，或 6-5，非逼叫'),
+    N('跳 2NT','平均，6 张方块，14–15，非逼叫'),
+    N('跳 3♣','5-5，13–15，两套都像样，非逼叫'),
+    N('跳 3♢','长而好的方块套，14–15，非逼叫',{d:'以上逆叫／跳叫均非逼叫：开叫人牌力已限定，**应叫人是 captain**'})
+  ]}),
+  N('1NT','7–差 11，否认 4 张高花，不逼叫',{d:'可能有 5 张方块，但开叫人或仅 2 张，故仍叫 1NT', c:[
+    N('非平均牌型再叫','开叫人显示非平均（可强至 15）',{d:'应叫人可用 **2NT 或加叫**邀局'})
+  ]}),
+  N('2♣ / 2♢','逼局，或长低花／双低花的邀局牌',{d:'否认 4 张高花（除非该低花 6 张↑且逼局）。2♢ 需 alert，2♣ 不需。\n停局两法：2m 后立即 3m＝11–12 邀请；2♢ 后立即 3♣＝11–12 邀请，双低花 9 张↑。\n因应叫人很少有高花，**开叫人二阶高花再叫均为人为**。\nPass 过的应叫方：2m 仍强但非逼叫，9–10(−)，5 张↑该低花，无 4 张高花', c:[
+    N('2♢','（在 2♣ 上）5 张↑方块，非平均，否认 4 张↑梅花',{d:'此后 3♣／3♢ 非逼叫，其余逼局；应叫人 2M＝半自然，确认逼局'}),
+    N('2♡','11–13 平均（与红心无关）',{d:'相当于再叫 NT，可能支持同伴低花。平均牌型**绝不直接支持低花**以隐藏信息（唯一例外 1♢-2♢-2NT）', c:[
+      N('2♠','puppet to 2NT',{d:'用于把 NT 定在正确一方（某高花单张或 xxx → 让开叫人做庄），也可区分邀局／满贯邀请与 6-4／6-5', c:[
+        N('2NT','强迫叫',{c:[
+          N('3m','逼局，满贯兴趣'),
+          N('3M','6 张↑该低花 + 恰好 4 张该高花，逼局',{d:'若低花只有 5 张，起手应叫 1M'}),
+          N('3NT','让开叫人做庄')
+        ]})
+      ]}),
+      N('2NT','满贯兴趣，平均，问 4 张↑低花'),
+      N('3 同低花','邀请，非逼叫',{d:'或 2♢ 后 3♣'}),
+      N('3M','6 张低花 + 5 张该高花，逼局'),
+      N('3NT','愿意自己做庄',{d:'如双高花 Kxx / AQx'})
+    ]}),
+    N('2♠','人为：对同伴低花的未指明 splinter，逼局',{d:'绝不会是短方块。非平均 4 张↑支持时使用', c:[
+      N('2NT','问哪门 splinter',{d:'级叫回答：第 1 / 2 / 3 级＝高 / 中 / 低'})
+    ]}),
+    N('2NT / 3NT','2♣ 上＝恰好 4441；2♢ 上＝6 张方块平均',{d:'低限 / 高限'}),
+    N('3♣','人为：同伴低花 3 张 + 另一低花 5 张 + 4 张高花，逼局',{c:[
+      N('3♢','问开叫人是哪门高花')
+    ]}),
+    N('3♢','非常好的 6 张↑方块套，逼局'),
+    N('3♡ / 3♠','6 张方块 + 5 张该高花，逼局')
+  ]}),
+  N('2♡ / 2♠','Reverse Flannery：5♠ + 4/5♡',{d:'2♡＝6–9；2♠＝10–12 邀局。需 alert。Pass 过的应叫方、二家加倍后同样适用。\n5♠ + 4♡↑且逼局 → 改走 1♠。\n好处：释放 1♢-1♠-2m-2♡ 与 1♢-1♡-2m-2♠ 作人为第四花色逼局', c:[
+    N('止叫','pass／改到更好的高花分部／3♣（5-5 低花）／再叫方块／跳成局'),
+    N('2NT','有成局兴趣，询问',{c:[
+      N('3♣','低限，5♠-4♡'),
+      N('3♢','高限，5♠-4♡'),
+      N('3♡','低限，5♠-5♡'),
+      N('3♠','高限，5♠-5♡')
+    ]})
+  ]}),
+  N('2NT','好 11–12，平均，无 4 张高花，邀请',{c:[
+    N('3m','两门低花，非平均，低限'),
+    N('3M','牌力集中在该高花，另一高花短缺'),
+    N('4M','6 张方块 + 5 张该高花')
+  ]}),
+  N('3♣ / 4♣','双低花，6–10，无 4 张高花',{d:'3♣＝5-4 任一向；4♣＝至少 5-5。需 alert。\n开叫人：偏好梅花 pass；方块更长更好则同级改叫；也可推进。\n==风险：开叫人低花 3-2=='}),
+  N('3♢','6 张↑方块，5–10',{d:'类 inverted minors；需 6 张因开叫人可能只有 2 张'}),
+  N('3♡ / 3♠ / 4♢','自然，7 张，6–9',{d:'需 alert'}),
+  N('3NT','13–16，平均，无 4 张高花'),
+  N('4♡ / 4♠','8 张或很好的 7 张',{d:'阻击兼定约：开叫人牌力已限定，无需冗长叫牌。需 alert'}),
+  N('干扰处理','对手在 1♢ 后出叫',{d:'基本同标准制：负性加倍；**二阶自由叫（含 2♢）逼叫一轮**；一阶高花争叫后跳叫梅花仍＝两门低花；Support (re)double 适用。\n**在得到相反信息前，始终假定开叫人 11–13 平均**'})
+]}),
+
+/* ============================== 1M ============================== */
+N('1♡ / 1♠','好 10–15，5 张↑',{g:'开叫', next:'要点', d:'应叫沿用标准体系（1NT forcing、2/1 GF、Bergen 均可）。**逼局门槛 13+**；constructive raise ≈8–差 11。对手干扰时按标准制反应，已知开叫人 11–15', c:[
+  N('4M','应叫人跳成局（需 alert）',{d:'普通阻击加叫，**或** 3 张支持 + 成局牌力但认为满贯渺茫。对手在其上竞叫后，应叫人加倍＝后者（power raise）'}),
+  N('开叫人跳叫再叫','14–15 + 极好牌型，非逼叫',{d:'5-5 跳另一套／再叫本高花需好 6 张／逆叫入黑桃。应叫人若不是 pass、也不是改到开叫人某花色，即为逼局'}),
+  N('竞叫判断','假定开叫人是好 10–13',{d:'与 14–15 约 3:1，且 14–15 的 5332 会开 1NT；14–15 非平均通常会自己再行动'})
+]}),
+
+/* ============================== 1NT ============================== */
+N('1NT','14–16 平均',{g:'开叫', next:'要点', d:'含 5M(332)、5m(422)；可含单张 A／K／Q；不含 6 张低花', c:[
+  N('应叫','沿用现有全套',{d:'Stayman / Jacoby / lebensohl。比 15–17 轻 1 点：**邀请 ≈9，逼局 10+**'}),
+  N('务必开 1NT','牌型牌力符合就开',{d:'否则该中间区间难以表达，应叫人不会预期一阶花色开叫是 14–16，易漏局'}),
+  N('优势与配套','出现频率约多三分之一，兼具阻击性与描述性',{d:'（非 SMP 建议）跳 2NT 再叫＝17–差 19；2NT 开叫＝好 19–21'})
+]}),
+
+/* ============================== 2♣ ============================== */
+N('2♣','好 10–15，6 张↑梅花',{g:'开叫', d:'非逼叫，需 alert。当作 1M 开叫理解：承诺一门 primary suit。可有旁边 4/5 张套', c:[
+  N('2♢','等待叫，至少有些成局兴趣',{d:'记忆：应叫人 3♢ 通常＝梅花满贯尝试；3♡ / 3♠＝恰好 5 张', c:[
+    N('2♡','任意 4 张高花',{c:[
+      N('2♠','问是哪门高花',{c:[
+        N('2NT / 3♣','红心 / 黑桃，10–13',{c:[
+          N('Pass / 3♣','止叫（开叫人是错的那门）'),
+          N('3♢','梅花满贯尝试'),
+          N('3（开叫人高花）','邀局'),
+          N('3（另一高花）','在开叫人高花上的满贯尝试'),
+          N('成局','想打')
+        ]}),
+        N('3♢ / 3♡','红心 / 黑桃，14–15，逼局',{c:[
+          N('3（开叫人花色）','满贯尝试'),
+          N('成局','想打')
+        ]})
+      ]}),
+      N('2NT / 3♣','自然邀请，对高花无兴趣'),
+      N('3♢','梅花满贯尝试')
+    ]}),
+    N('2♠','中等或高限，无 4 张高花',{c:[
+      N('2NT','问中等还是高限',{d:'中等 → 3♣；高限 → 三阶叫单张/缺门，或 3NT'}),
+      N('3♣','「the brakes」刹车',{d:'不再有成局兴趣（本想碰高花配合），**开叫人必须 pass**'}),
+      N('3♢','梅花满贯尝试'),
+      N('3M','恰好 5 张，逼局')
+    ]}),
+    N('2NT','高限，双高花有止，无 4 张高花',{c:[
+      N('3♢','梅花满贯尝试'),
+      N('3M','恰好 5 张，逼局')
+    ]}),
+    N('3♣','「the pits」极低限且套不好，无 4 张高花',{c:[
+      N('3♢','梅花满贯尝试'),
+      N('3M','恰好 5 张，逼局')
+    ]}),
+    N('3♢ / 3♡ / 3♠','旁边一门 5 张套，逼局')
+  ]}),
+  N('2♡ / 2♠','自然 5 张↑，非逼叫，8–11',{d:'需 alert。应叫人不应持严肃邀请牌，但找到配合后可有成局兴趣', c:[
+    N('Pass','有容忍度'),
+    N('加叫','有配合，自由加叫'),
+    N('逃叫','无容忍度：2♠（在 2♡ 上）、2NT、3♣（7 张↑梅花）')
+  ]}),
+  N('2NT','puppet to 3♣',{d:'需 alert。多为阻击加叫，偶为 5-5 逼局牌', c:[
+    N('3♣','强迫',{d:'记忆「Invisible Diamonds」：叫 3♢ 否认方块，不叫方块反而表示方块', c:[
+      N('Pass','阻击性加叫'),
+      N('3♢','5♡-5♠，逼局'),
+      N('3♡','5♡-5♢，逼局'),
+      N('3♠','5♠-5♢，逼局'),
+      N('开叫人后续','（应叫人 5-5 逼局时）',{d:'能在三阶叫该高花则定将，否则叫**另一门**成局以下高花作 flag；方块有配合 → 4♢；无配合 → 3NT 或 4♣'})
+    ]})
+  ]}),
+  N('3♣ / 3♢ / 3♡','转移：下一个更高花色 6 张↑，邀请以上',{d:'需 alert。完成转移＝拒绝（单张亦然）；自然叫高＝接受。止叫之上应叫人再叫即逼局'}),
+  N('3♠','6 张黑桃 + 4 张红心，逼局',{d:'需 alert'}),
+  N('4♣','阻击加叫：3 张（通常 4 张），5–9',{d:'需 alert。依 Law of Total Tricks；开叫人牌型极佳可加深至 5♣↑'}),
+  N('成局叫','想打',{d:'需 alert。也可能是强牌但因开叫人仅 11–15 而认为无满贯'}),
+  N('干扰处理','对手在 2♣ 后出叫',{d:'对手加倍：systems on；**XX＝10+ 防守型牌，并激活惩罚性加倍**。\n对手争叫后：负性加倍／二阶新花（逼一轮）／在梅花上竞叫／三阶新花（逼局）／cue-bid＝好的梅花加叫／直接止叫成局'})
+]}),
+
+/* ============================== 2♢ ============================== */
+N('2♢','好 10–15，4414 / 4405 / 3415 / 4315',{g:'开叫', d:'人为，需 alert。「4-4-1-5 减一张」：无 5 张高花、方块太短不能开 1♢、非平均、梅花不足 6 张、不够 1♣', c:[
+  N('2♡ / 2♠ / 3♣','止叫',{d:'开叫人必须 pass。**唯一例外：2♡ 应叫时恰好 4315 必须改叫 2♠**（避免有 4-3 配合却打 3-3，如同伴 3343 / 3352）。应叫人偶尔再拉走（如 5-3 梅花配合）'}),
+  N('3♢','邀请，长而好的方块套'),
+  N('3M','mixed raise：5 张将牌，7–9',{d:'开叫人可以 4 张支持 + 高限加叫'}),
+  N('成局叫','已知最终定约时直接跳成局'),
+  N('2NT','询问（含多数邀局牌）',{d:'为何示 3 张而非 4 张高花：让开叫人做明手以隐藏应叫人的牌；4 张高花更可能成将，留给应叫人叫可提高其做庄概率；也保留在 5-3 配合上 pass 3M 停在成局以下的最后机会', c:[
+    N('3♣','任意低限',{d:'此后除 3♢ 外皆止叫', c:[
+      N('3♢','问 3 张高花',{c:[
+        N('3♡','4315'),
+        N('3♠','3415'),
+        N('3NT','4-4 高花')
+      ]})
+    ]}),
+    N('3♢','高限，4-4 高花，逼局',{d:'3M 定将以便 cue'}),
+    N('3♡ / 3♠','高限，3 张高花',{d:'分别为 4315 / 3415'})
+  ]}),
+  N('4♣ / 4♢ / RKC','relay 问清牌力牌型后的满贯工具',{next:'叫品', d:'仅在 relay 已揭示开叫人**牌力与牌型**之后使用（由应叫人单方问牌，开叫人不知将牌）。\n同样用于 1♣-1♡-2♠ 与 1♣-2♠；凡把一方牌型定死为 5440 / 5431 / 4441 之处皆适用', c:[
+    N('4♣','puppet to 4♢，之后自然满贯尝试',{d:'4♡ / 4♠ / 4NT / 5♣，开叫人可接受或拒绝；4M 之上的 4NT＝RKC'}),
+    N('4♢','puppet to 4♡，之后 pass 或止叫',{d:'开叫人此后不得再叫'}),
+    N('4♡','梅花 RKC',{d:'第 1 级＝0 或 3 张 keycard，第 2 级＝1 或 4 张…'}),
+    N('4♠','红心 RKC'),
+    N('4NT','黑桃 RKC')
+  ]}),
+  N('干扰处理','对手在 2♢ 后出叫',{d:'**所有加倍皆惩罚**；2NT（若可用）仍是询问。应叫人可便宜地叫开叫人三门花色之一停在该处，或跳叫作 mixed raise。\n对手加倍 2♢：**XX＝问较好的高花**；**pass＝要求开叫人也 pass**（方块很长，愿打被加倍的 2♢）'})
+]}),
+
+/* ============================== 其他开叫 ============================== */
+N('2♡ / 2♠','弱二：6–11（上限不超差 10），6 张',{g:'开叫', d:'无旁边 4 张高花。一/二家保证 [AKQ, 2] 或 [AKQJT, 3]；四家 10–13 好牌好套。\nSMP 开叫偏轻，弱二是真正的弱牌；可替换为 Flannery 2♡、Dutch Twos 等'}),
+N('2NT','20–21 平均，可含 5 张高花',{g:'开叫', d:'应叫沿用现有体系；更高阶开叫按平时打法'}),
+N('3♣ – 5♢','阻击：234 法则',{g:'开叫', d:'无旁边高花；防守赢墩 ≤1', c:[
+  N('加叫','加深阻击'),
+  N('新花色','5 张↑，逼叫（按 234 法则判断）')
+]}),
+N('3NT','赌博性：7 张坚固低花',{g:'开叫', d:'其他花色无止', c:[
+  N('Pass','其他花色有止'),
+  N('4♣','逃，pass or correct'),
+  N('4♢','半逃，pass or 5♣'),
+  N('5♣','双高有 4 个快速赢墩，pass or correct')
+]}),
+N('5♡ 及以上','自然：承诺所需赢墩',{g:'开叫', d:'将牌外无输墩', c:[
+  N('加一（两）阶','开叫花色上有一（两）大，其他花色大牌几乎无用')
+]}),
+
+/* ============================== 防守 ============================== */
+N('对方 Multi 2♢','防守方案一（BridgeBum）',{g:'防守', next:'情形', d:'Multi 2♢＝一门高花弱二或强 4441。防守以「对手是弱二」为前提。\n关键：**Double 与 2♡ 都是 takeout**——Double 当作对手开 2♠，2♡ 当作对手开 2♡', c:[
+  N('直接位','RHO 开叫 2♢',{next:'我方争叫', c:[
+    N('X','对黑桃的 takeout double'),
+    N('2♡','对红心的 takeout double'),
+    N('2♠','自然，5 张↑黑桃，非逼叫'),
+    N('2NT','16–18 平均',{d:'systems on（Stayman、Jacoby 转移等）'}),
+    N('3♣','自然，6 张↑梅花，非逼叫'),
+    N('3♢','自然，6 张↑方块，非逼叫'),
+    N('3♡','自然，6 张↑红心，非逼叫'),
+    N('3♠','自然，6 张↑黑桃，非逼叫',{d:'强于直接的 2♠ 争叫'}),
+    N('4♣','Leaping Michaels：5♣ + 5 张高花'),
+    N('4♢','Leaping Michaels：5♢ + 5 张高花')
+  ]}),
+  N('平衡位','2♢ – P – 2♡/2♠ – ?',{next:'我方叫品', d:'与直接位的实质差别：2NT 降为 15–18', c:[
+    N('X','takeout double'),
+    N('2♠','仅在对手叫 2♡ 时：自然 5 张↑，非逼叫'),
+    N('2NT','15–18 平均，systems on'),
+    N('3♣ / 3♢ / 3♡','自然，6 张↑，非逼叫'),
+    N('3♠','自然，6 张↑黑桃，非逼叫',{d:'强于直接的 2♠'}),
+    N('4♣ / 4♢','Leaping Michaels：该低花 5 张 + 5 张高花')
+  ]}),
+  N('2♢ – P – P – ?','应叫人愿打 2♢',{next:'我方叫品', d:'此后按「对手开方块弱二」处理', c:[
+    N('X','对方块的 takeout double')
+  ]}),
+  N('2♢ – P – 2♡ – X – 2♠ – ?','同伴对红心 takeout，开叫人改正到黑桃',{next:'我方叫品', c:[
+    N('X','惩罚性'),
+    N('3♡','自然，6 张↑红心，非逼叫'),
+    N('3♠','人为：问黑桃止张',{d:'同伴无止张时叫最便宜的长套'})
+  ]}),
+  N('2♢ – P – 2♡ – P – 2♠ – P – P – ?','开叫人改正到 2♠ 后到你平衡',{next:'我方叫品', c:[
+    N('X','对黑桃的 takeout double')
+  ]})
+]})
+];
+
+/* ───────────────────────── 渲染 ───────────────────────── */
+var path = [], prevDepth = 0;
+var $rails = document.getElementById('rails');
+var $main  = document.getElementById('main');
+var $crumbs= document.getElementById('crumbs');
+var mobile = window.matchMedia('(max-width:760px)');
+
+function esc(s){ return String(s).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function fmt(s){
+  if(!s) return '';
+  s = esc(s)
+    .replace(/\*\*(.+?)\*\*/g,'<b>$1</b>')
+    .replace(/==(.+?)==/g,'<mark>$1</mark>')
+    .replace(/\n/g,'<br>');
+  return s.replace(/([\u2661\u2662\u2665\u2666])/g,'<span class="r">$1</span>');
+}
+function plain(s){ return String(s).replace(/\*\*|==/g,''); }
+function listAt(depth, p){ return depth === 0 ? ROOTS : nodeAt(p.slice(0, depth)).c; }
+function nodeAt(p){
+  var n = null, list = ROOTS;
+  for(var i=0;i<p.length;i++){ n = list[p[i]]; if(!n) return null; list = n.c; }
+  return n;
+}
+function labelFor(parent, depth){ return (parent && parent.next) || LABELS[depth] || '后续'; }
+
+function render(){
+  var depth = path.length;
+
+  /* 顶栏叫序 */
+  var ch = '';
+  for(var i=0;i<depth;i++){
+    var n = nodeAt(path.slice(0,i+1));
+    if(i) ch += '<span class="sep">›</span>';
+    ch += '<button type="button" data-up="'+(i+1)+'">'+fmt(n.b)+'</button>';
+  }
+  $crumbs.innerHTML = ch;
+
+  /* 左侧堆叠栏 */
+  var rh = '';
+  for(var r=0;r<depth;r++){
+    var parent = r ? nodeAt(path.slice(0,r)) : null;
+    var list = listAt(r, path);
+    var narrow = (depth - r) > 3;
+    var enter = (r === depth-1 && depth > prevDepth);
+    rh += '<nav class="rail'+(narrow?' narrow':'')+(enter?' enter':'')+'"><div class="rh">'+esc(r ? labelFor(parent, r) : '开叫 / 防守')+'</div>';
+    var lastG = null;
+    for(var j=0;j<list.length;j++){
+      var it = list[j], has = it.c.length > 0;
+      if(r === 0 && it.g !== lastG){ rh += '<div class="rg">'+esc(it.g)+'</div>'; lastG = it.g; }
+      rh += '<button type="button" class="ri'+(j===path[r]?' sel':'')+(has?'':' leaf')+'" '+(has?'':'disabled ')+
+            'data-r="'+r+'" data-j="'+j+'" title="'+esc(plain(it.b+'：'+it.m))+'">'+
+            '<span class="b">'+fmt(it.b)+'</span><span class="m">'+fmt(it.m)+'</span></button>';
+    }
+    rh += '</nav>';
+  }
+  $rails.innerHTML = rh;
+
+  /* 主体 */
+  var h = '';
+  if(depth === 0){
+    h += '<h1>SMP 叫牌导航</h1>';
+    h += '<p class="intro">选择一个开叫，逐级查看应叫与再叫。已选的层级会收到左侧（手机上堆叠在顶部），点击任一层可随时切换或返回。</p>';
+    var groups = [];
+    ROOTS.forEach(function(n,idx){
+      var g = groups[groups.length-1];
+      if(!g || g.name !== n.g){ g = {name:n.g, items:[]}; groups.push(g); }
+      g.items.push({n:n, idx:idx});
+    });
+    groups.forEach(function(g){
+      h += '<div class="grp">'+esc(g.name)+'</div><div class="grid">';
+      g.items.forEach(function(o){
+        var n = o.n, has = n.c.length > 0;
+        if(has){
+          h += '<button type="button" class="card" data-go="'+o.idx+'"><span class="b">'+fmt(n.b)+'</span>'+
+               '<span class="m">'+fmt(n.m)+'</span><span class="c">'+n.c.length+' 项 ›</span></button>';
+        }else{
+          h += '<div class="card leafcard"><span class="b">'+fmt(n.b)+'</span><span class="m">'+fmt(n.m)+'</span>'+
+               (n.d?'<span class="c">'+fmt(n.d)+'</span>':'')+'</div>';
+        }
+      });
+      h += '</div>';
+    });
+  }else{
+    var cur = nodeAt(path);
+    var trail = [];
+    for(var k=0;k<depth;k++) trail.push(fmt(nodeAt(path.slice(0,k+1)).b));
+    h += '<p class="where">'+trail.join('　–　')+'</p>';
+    h += '<h1>'+fmt(cur.b)+'</h1>';
+    if(cur.m) h += '<p class="lead">'+fmt(cur.m)+'</p>';
+    if(cur.d) h += '<div class="note">'+fmt(cur.d)+'</div>';
+    if(cur.c.length){
+      h += '<div class="sect">'+esc(labelFor(cur, depth))+'<span>'+cur.c.length+' 项</span></div><div class="list">';
+      cur.c.forEach(function(n, idx){
+        var has = n.c.length > 0;
+        var inner = '<div class="rb">'+fmt(n.b)+'</div><div class="rm"><div class="m">'+fmt(n.m)+'</div>'+
+                    (n.d?'<div class="d">'+fmt(n.d)+'</div>':'')+'</div>';
+        if(has) h += '<button type="button" class="row" data-go="'+idx+'">'+inner+'<div class="chev">'+n.c.length+' 项 ›</div></button>';
+        else    h += '<div class="row">'+inner+'<div class="chev"></div></div>';
+      });
+      h += '</div>';
+    }
+  }
+  $main.innerHTML = '<div class="fade">'+h+'</div>';
+  $main.scrollTop = 0;
+  if(mobile.matches) document.getElementById('layout').scrollTop = 0;
+
+  /* 让每栏的选中项可见 */
+  [].forEach.call($rails.querySelectorAll('.ri.sel'), function(el){
+    el.scrollIntoView({block:'nearest', inline:'center'});
+  });
+  $crumbs.scrollLeft = $crumbs.scrollWidth;
+  prevDepth = depth;
+  document.body.classList.toggle('depth0', depth === 0);
+}
+
+/* ───────────────────────── 状态与交互 ───────────────────────── */
+function setPath(p, replace){
+  path = p;
+  var hash = p.length ? '#p=' + p.join('.') : '#';
+  if(replace) history.replaceState(null, '', hash);
+  else if(location.hash !== hash) history.pushState(null, '', hash);
+  render();
+}
+function readHash(){
+  var m = location.hash.match(/^#p=([\d.]+)$/);
+  if(!m) return [];
+  var p = m[1].split('.').map(Number), ok = [];
+  for(var i=0;i<p.length;i++){
+    var n = nodeAt(ok.concat(p[i]));
+    if(!n || !n.c.length) break;
+    ok.push(p[i]);
+  }
+  return ok;
+}
+
+document.addEventListener('click', function(e){
+  var t = e.target.closest('[data-go],[data-r],[data-up],#home');
+  if(!t) return;
+  if(t.id === 'home'){ setPath([]); return; }
+  if(t.hasAttribute('data-up')){ setPath(path.slice(0, +t.getAttribute('data-up'))); return; }
+  if(t.hasAttribute('data-r')){
+    var r = +t.getAttribute('data-r'), j = +t.getAttribute('data-j');
+    if(path[r] === j && path.length === r+1) return;
+    setPath(path.slice(0, r).concat(j)); return;
+  }
+  if(t.hasAttribute('data-go')){ setPath(path.concat(+t.getAttribute('data-go'))); }
+});
+document.addEventListener('keydown', function(e){
+  if((e.key === 'Escape' || e.key === 'ArrowLeft') && path.length && !e.target.closest('input,textarea')){
+    e.preventDefault(); setPath(path.slice(0, -1));
+  }
+});
+window.addEventListener('popstate', function(){ path = readHash(); render(); });
+
+/* 侧栏含义显示开关（记住在本机） */
+var DESC_KEY = 'smp-nav-rail-desc';
+var $eye = document.getElementById('eye');
+function applyDesc(on){
+  document.body.classList.toggle('desc-off', !on);
+  $eye.setAttribute('aria-pressed', on ? 'true' : 'false');
+  $eye.title = on ? '左侧栏：显示含义（点击隐藏）' : '左侧栏：只显示叫品（点击显示含义）';
+}
+var descOn = true;
+try{ var v = localStorage.getItem(DESC_KEY); if(v === '0') descOn = false; }catch(e){}
+applyDesc(descOn);
+$eye.addEventListener('click', function(){
+  descOn = !descOn; applyDesc(descOn);
+  try{ localStorage.setItem(DESC_KEY, descOn ? '1' : '0'); }catch(e){}
+});
+
+path = readHash();
+render();
+</script>
+</body>
+</html>
